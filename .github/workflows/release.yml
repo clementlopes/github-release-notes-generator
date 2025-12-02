@@ -1,0 +1,65 @@
+# Workflow name: Build & Release
+name: Build & Release
+
+# Trigger this workflow on:
+# - Pushes to the 'main' branch
+# - Any tag being pushed (e.g., v1.0.0)
+# - Pull requests opened, synchronized (updated), or reopened against any branch
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "*"
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Grant write permissions to the repository contents (needed for creating releases)
+permissions:
+  contents: write
+
+jobs:
+  # Only one job remains: creating a GitHub release when a tag is pushed
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+
+    # This job runs ONLY when the workflow is triggered by a tag push (e.g., refs/tags/v1.2.3)
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      # Step 1: Check out the repository code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history (needed for generating release notes)
+
+      # Step 2: Install required tools (jq for JSON processing, git, and make script executable)
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq git
+          chmod +x generate_release_notes.sh
+
+      # Step 3: Run a custom script to generate release notes and capture its output
+      - name: Generate release notes
+        id: notes  # Gives this step an ID so we can reference its output later
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed for authenticated GitHub API calls
+        run: |
+          # Run the script and store its output in a variable
+          RELEASE_NOTES=$(./generate_release_notes.sh "$GITHUB_REPOSITORY")
+          # Pass the release notes to the next step using GITHUB_OUTPUT
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$RELEASE_NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      # Step 4: Create a GitHub Release using the generated notes
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}  # The tag that triggered this workflow (e.g., v1.2.3)
+          name: Release ${{ github.ref_name }}  # Release title
+          body: ${{ steps.notes.outputs.notes }}  # Body content from the previous step
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Required to create the release
