@@ -57,8 +57,9 @@ fi
 TEMP_COMMITS=$(mktemp)
 TEMP_AUTHORS=$(mktemp)
 
-git log --pretty=format:"%H" "$COMMIT_RANGE" > "$TEMP_COMMITS"
-git log --format='%an|%ae' "$COMMIT_RANGE" | sort -u > "$TEMP_AUTHORS"
+# Use --use-mailmap to unify author identities (requires .mailmap file)
+git log --use-mailmap --pretty=format:"%H" "$COMMIT_RANGE" > "$TEMP_COMMITS"
+git log --use-mailmap --format='%an|%ae' "$COMMIT_RANGE" | sort -u > "$TEMP_AUTHORS"
 
 COMMITS_COUNT=$(wc -l < "$TEMP_COMMITS")
 CONTRIBUTORS_COUNT=$(wc -l < "$TEMP_AUTHORS")
@@ -82,19 +83,19 @@ if [ -s "$TEMP_COMMITS" ]; then
         AUTHOR_EMAIL=$(git show -s --format=%ae "$COMMIT_HASH")
         SHORT_COMMIT_HASH=$(echo "$COMMIT_HASH" | cut -c1-7)
 
-        DISPLAY_NAME="$AUTHOR_NAME"  # fallback: always show real name
+        DISPLAY_NAME="$AUTHOR_NAME"
 
         if [ -n "${GITHUB_TOKEN}" ]; then
             USERNAME=""
 
-            # 1. Try reliable noreply email format
+            # 1. Handle GitHub noreply emails (most reliable)
             if echo "$AUTHOR_EMAIL" | grep -q "@users.noreply.github.com"; then
                 USERNAME=$(echo "$AUTHOR_EMAIL" | sed 's/.*+\([^@]*\)@.*/\1/')
                 if [ -n "$USERNAME" ]; then
                     DISPLAY_NAME="[@${USERNAME}](https://github.com/${USERNAME})"
                 fi
             else
-                # 2. Try real email (only if public on GitHub)
+                # 2. Try real email (only works if public on GitHub)
                 USERNAME=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
                     "https://api.github.com/search/users?q=${AUTHOR_EMAIL}+in:email" \
                     | jq -r '.items[0].login // empty' 2>/dev/null)
@@ -102,11 +103,11 @@ if [ -s "$TEMP_COMMITS" ]; then
                 if [ -n "$USERNAME" ] && [ "$USERNAME" != "null" ]; then
                     DISPLAY_NAME="[@${USERNAME}](https://github.com/${USERNAME})"
                 fi
-                # else: keep DISPLAY_NAME = AUTHOR_NAME (no guesswork)
+                # else: keep real name (safe fallback)
             fi
         fi
 
-        # Detect PR number
+        # Detect PR
         PR_NUMBER=$(echo "$SUBJECT $BODY" | grep -o '#[0-9]*' | head -n1 | sed 's/#//')
         if [ -z "$PR_NUMBER" ]; then
             PR_TEXT=""
@@ -128,7 +129,7 @@ if [ -s "$TEMP_AUTHORS" ]; then
     while IFS='|' read -r AUTHOR EMAIL || [ -n "$AUTHOR" ]; do
         [ -z "$AUTHOR" ] && continue
 
-        DISPLAY_NAME="$AUTHOR"  # always show name
+        DISPLAY_NAME="$AUTHOR"
 
         if [ -n "${GITHUB_TOKEN}" ]; then
             USERNAME=""
