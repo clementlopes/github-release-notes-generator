@@ -130,22 +130,19 @@ if [ -s "$TEMP_AUTHORS" ]; then
     while IFS='|' read -r AUTHOR EMAIL || [ -n "$AUTHOR" ]; do
         [ -z "$AUTHOR" ] && continue
 
-        DISPLAY_NAME="${AUTHOR}"
+        AUTHOR_DISPLAY="${AUTHOR_NAME}"
 
-        if [ -n "${GITHUB_TOKEN}" ] && [ -n "$EMAIL" ]; then
-            USERNAME=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-                "https://api.github.com/search/users?q=${EMAIL}+in:email" \
-                | jq -r '.items[0].login // empty' 2>/dev/null)
-
-            if [ -z "$USERNAME" ] || [ "$USERNAME" = "null" ]; then
-                SEARCH_NAME=$(echo "$AUTHOR" | tr ' ' '+' | sed 's/[^a-zA-Z0-9+]//g')
-                USERNAME=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-                    "https://api.github.com/search/users?q=${SEARCH_NAME}+in:name" \
-                    | jq -r '.items[0].login // empty' 2>/dev/null)
-            fi
-
-            if [ -n "$USERNAME" ] && [ "$USERNAME" != "null" ]; then
-                DISPLAY_NAME="[@${USERNAME}](https://github.com/${USERNAME})"
+        if [ -n "${GITHUB_TOKEN}" ]; then
+            # Only try email lookup (name lookup is unreliable)
+            if echo "$AUTHOR_EMAIL" | grep -q "@users.noreply.github.com"; then
+                # Extract username from noreply email: 12345+username@users.noreply.github.com
+                USERNAME=$(echo "$AUTHOR_EMAIL" | sed 's/.*+\([^@]*\)@.*/\1/')
+                AUTHOR_DISPLAY="[@${USERNAME}](https://github.com/${USERNAME})"
+            else
+                # For real emails, only link if email is public (but we can't know)
+                # So: don't guess. Just use name.
+                # (Optional: you could skip API entirely for non-noreply emails)
+                AUTHOR_DISPLAY="${AUTHOR_NAME}"
             fi
         fi
 
