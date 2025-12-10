@@ -82,33 +82,31 @@ if [ -s "$TEMP_COMMITS" ]; then
         AUTHOR_EMAIL=$(git show -s --format=%ae "$COMMIT_HASH")
         SHORT_COMMIT_HASH=$(echo "$COMMIT_HASH" | cut -c1-7)
 
-
-        AUTHOR_DISPLAY="${AUTHOR_NAME}"  # fallback default
+        DISPLAY_NAME="$AUTHOR_NAME"  # fallback: always show real name
 
         if [ -n "${GITHUB_TOKEN}" ]; then
             USERNAME=""
 
-            # 1. Try by email
-            USERNAME=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-                "https://api.github.com/search/users?q=${AUTHOR_EMAIL}+in:email" \
-                | jq -r '.items[0].login // empty' 2>/dev/null)
-
-            # 2. If not found, try by cleaned name
-            if [ -z "$USERNAME" ] || [ "$USERNAME" = "null" ]; then
-                SEARCH_NAME=$(echo "$AUTHOR_NAME" | tr ' ' '+' | sed 's/[^a-zA-Z0-9+]//g')
+            # 1. Try reliable noreply email format
+            if echo "$AUTHOR_EMAIL" | grep -q "@users.noreply.github.com"; then
+                USERNAME=$(echo "$AUTHOR_EMAIL" | sed 's/.*+\([^@]*\)@.*/\1/')
+                if [ -n "$USERNAME" ]; then
+                    DISPLAY_NAME="[@${USERNAME}](https://github.com/${USERNAME})"
+                fi
+            else
+                # 2. Try real email (only if public on GitHub)
                 USERNAME=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-                    "https://api.github.com/search/users?q=${SEARCH_NAME}+in:name" \
+                    "https://api.github.com/search/users?q=${AUTHOR_EMAIL}+in:email" \
                     | jq -r '.items[0].login // empty' 2>/dev/null)
-            fi
 
-            # 3. Only link if we have a valid, non-null username
-            if [ -n "$USERNAME" ] && [ "$USERNAME" != "null" ]; then
-                AUTHOR_DISPLAY="[@${USERNAME}](https://github.com/${USERNAME})"
+                if [ -n "$USERNAME" ] && [ "$USERNAME" != "null" ]; then
+                    DISPLAY_NAME="[@${USERNAME}](https://github.com/${USERNAME})"
+                fi
+                # else: keep DISPLAY_NAME = AUTHOR_NAME (no guesswork)
             fi
         fi
-        # --- fim da lógica segura ---
 
-        # Detect PR
+        # Detect PR number
         PR_NUMBER=$(echo "$SUBJECT $BODY" | grep -o '#[0-9]*' | head -n1 | sed 's/#//')
         if [ -z "$PR_NUMBER" ]; then
             PR_TEXT=""
@@ -116,7 +114,7 @@ if [ -s "$TEMP_COMMITS" ]; then
             PR_TEXT=" in [#${PR_NUMBER}](${GITHUB_URL}/pull/${PR_NUMBER})"
         fi
 
-        echo "- [${SHORT_COMMIT_HASH}](${GITHUB_URL}/commit/${COMMIT_HASH}) ${SUBJECT} by ${AUTHOR_DISPLAY}${PR_TEXT}"
+        echo "- [${SHORT_COMMIT_HASH}](${GITHUB_URL}/commit/${COMMIT_HASH}) ${SUBJECT} by ${DISPLAY_NAME}${PR_TEXT}"
     done < "$TEMP_COMMITS"
 else
     echo "- No changes found between ${PREVIOUS_TAG} and ${CURRENT_TAG}"
@@ -130,23 +128,28 @@ if [ -s "$TEMP_AUTHORS" ]; then
     while IFS='|' read -r AUTHOR EMAIL || [ -n "$AUTHOR" ]; do
         [ -z "$AUTHOR" ] && continue
 
-        AUTHOR_DISPLAY="${AUTHOR_NAME}"
+        DISPLAY_NAME="$AUTHOR"  # always show name
 
         if [ -n "${GITHUB_TOKEN}" ]; then
-            # Only try email lookup (name lookup is unreliable)
-            if echo "$AUTHOR_EMAIL" | grep -q "@users.noreply.github.com"; then
-                # Extract username from noreply email: 12345+username@users.noreply.github.com
-                USERNAME=$(echo "$AUTHOR_EMAIL" | sed 's/.*+\([^@]*\)@.*/\1/')
-                AUTHOR_DISPLAY="[@${USERNAME}](https://github.com/${USERNAME})"
+            USERNAME=""
+
+            if echo "$EMAIL" | grep -q "@users.noreply.github.com"; then
+                USERNAME=$(echo "$EMAIL" | sed 's/.*+\([^@]*\)@.*/\1/')
+                if [ -n "$USERNAME" ]; then
+                    DISPLAY_NAME="[@${USERNAME}](https://github.com/${USERNAME})"
+                fi
             else
-                # For real emails, only link if email is public (but we can't know)
-                # So: don't guess. Just use name.
-                # (Optional: you could skip API entirely for non-noreply emails)
-                AUTHOR_DISPLAY="${AUTHOR_NAME}"
+                USERNAME=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+                    "https://api.github.com/search/users?q=${EMAIL}+in:email" \
+                    | jq -r '.items[0].login // empty' 2>/dev/null)
+
+                if [ -n "$USERNAME" ] && [ "$USERNAME" != "null" ]; then
+                    DISPLAY_NAME="[@${USERNAME}](https://github.com/${USERNAME})"
+                fi
             fi
         fi
 
-        echo "- ${DISPLAY_NAME} made their first contribution"
+        echo "- ${DISPLAY_NAME} made their first contribution 🎉"
     done < "$TEMP_AUTHORS"
 fi
 
