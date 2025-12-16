@@ -20,6 +20,10 @@ A **copy-paste friendly** shell script that auto-generates professional, contrib
    git tag -a v1.0.0 -m "Release v1.0.0"
    git push origin v1.0.0
 
+3. **sign of commits** with your username and email
+    ```sh
+    git commit --author="Nome <Nome@email.com>" -m "Mensagem do commit"
+
 # Contributing
 
 1. Fork the repo
